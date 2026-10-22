@@ -27,6 +27,7 @@
 #include "amgx_types/util.h"
 
 #include <algorithm>
+#include <limits>
 #include <iostream> //debug only:
 
 struct is_my_part
@@ -1038,7 +1039,7 @@ void DistributedManager<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indP
 template <AMGX_VecPrecision t_vecPrec, AMGX_MatPrecision t_matPrec, AMGX_IndPrecision t_indPrec>
 template <typename t_colIndex>
 void DistributedManager<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indPrec> >::loadDistributed_SetOffsets(
-    int num_ranks, int num_rows_global, const t_colIndex* partition_offsets)
+    int num_ranks, int64_t num_rows_global, const t_colIndex* partition_offsets)
 {
     // fill part offsets internal data structures
     this->part_offsets_h.resize(num_ranks + 1);
@@ -1139,21 +1140,23 @@ void DistributedManager<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indP
     const t_colIndex *col_indices,
     const mat_value_type *values,
     int num_ranks,
-    int num_rows_global,
+    int64_t num_rows_global,
     const void *diag,
     const int *partition)
 {
     // fetch my rank
     int my_id = this->getComms()->get_global_id();
     // setup partition vector
-    IVector_h partitionVec(num_rows_global);
+    // The Vector constructor takes unsigned int; resize preserves 64-bit sizes.
+    IVector_h partitionVec;
+    partitionVec.resize(num_rows_global);
 
     if (partition == NULL)
     {
         IVector_h rowCounts(num_ranks);
         this->getComms()->all_gather(num_rows, rowCounts, 1);
 
-        int p = 0;
+        int64_t p = 0;
         for (int i = 0; i < num_ranks; ++i)
         {
             for (int j = 0; j < rowCounts[i]; ++j)
@@ -1165,7 +1168,7 @@ void DistributedManager<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indP
     else
     {
         // use existing partition info
-        for (int i = 0; i < num_rows_global; i++)
+        for (int64_t i = 0; i < num_rows_global; i++)
         {
             partitionVec[i] = partition[i];
         }
@@ -1174,7 +1177,7 @@ void DistributedManager<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indP
     // compute partition offsets (based on number of elements per partition). Will be modified when calculating partition map.
     t_colIndex *partition_offsets = (t_colIndex *)calloc(num_ranks + 1, sizeof(t_colIndex));
 
-    for (int i = 0; i < num_rows_global; i++)
+    for (int64_t i = 0; i < num_rows_global; i++)
     {
         int pvi = partitionVec[i];
         partition_offsets[pvi + 1]++;
@@ -1187,7 +1190,7 @@ void DistributedManager<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indP
     // compute partition map (which tells you how the global elements are mapped into the partitions)
     t_colIndex *partition_map = (t_colIndex *)calloc(num_rows_global, sizeof(t_colIndex));
 
-    for (int i = 0; i < num_rows_global; i++)
+    for (int64_t i = 0; i < num_rows_global; i++)
     {
         int     pvi = partitionVec[i];
         t_colIndex poi = partition_offsets[pvi];
@@ -1199,7 +1202,7 @@ void DistributedManager<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indP
     // compute the inverse partition map
     t_colIndex *ipartition_map = (t_colIndex *)calloc(num_rows_global, sizeof(t_colIndex));
 
-    for (int i = 0; i < num_rows_global; i++)
+    for (int64_t i = 0; i < num_rows_global; i++)
     {
         ipartition_map[partition_map[i]] = i;
     }
@@ -1221,7 +1224,8 @@ void DistributedManager<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indP
     auto global_to_local = loadDistributed_LocalToGlobal<t_colIndex>(num_rows, off_diag_cols);
 
     // set 1, then scan to compute local row indices
-    IVector_h my_indices(num_rows_global);
+    IVector_h my_indices;
+    my_indices.resize(num_rows_global);
 
     for (int i = 0; i < num_nonzeros; i++)
     {
@@ -1272,7 +1276,7 @@ void DistributedManager<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indP
     const t_colIndex *col_indices,
     const mat_value_type *values,
     int num_ranks,
-    int num_rows_global,
+    int64_t num_rows_global,
     const void *diag,
     const t_colIndex *partition_offsets)
 {
@@ -1351,10 +1355,16 @@ void DistributedManager<TemplateConfig<AMGX_device, t_vecPrec, t_matPrec, t_indP
     const t_colIndex *col_indices,
     const mat_value_type *values,
     int num_ranks,
-    int num_rows_global,
+    int64_t num_rows_global,
     const void *diag,
     const MatrixDistribution &dist)
 {
+    // Partition offsets include the one-past-the-end global row index.
+    if (num_rows_global < 0 || num_rows_global > std::numeric_limits<t_colIndex>::max())
+    {
+        FatalError("Global row count is out of range for the column index type; use 64-bit column indices for large matrices.", AMGX_ERR_BAD_PARAMETERS);
+    }
+
     using PI = MatrixDistribution::PartitionInformation;
     switch (dist.getPartitionInformationStyle()) {
         case PI::PartitionVec:
@@ -5793,7 +5803,7 @@ template <AMGX_VecPrecision t_vecPrec, AMGX_MatPrecision t_matPrec, AMGX_IndPrec
 template <typename t_colIndex>
 void DistributedManager<TemplateConfig<AMGX_host, t_vecPrec, t_matPrec, t_indPrec> >::loadDistributedMatrix(
     int num_rows, int num_nonzeros, const int block_dimx, const int block_dimy, const int *row_offsets, 
-    const t_colIndex *col_indices, const mat_value_type *values, int num_ranks, int num_rows_global, const void *diag, const MatrixDistribution &dist)
+    const t_colIndex *col_indices, const mat_value_type *values, int num_ranks, int64_t num_rows_global, const void *diag, const MatrixDistribution &dist)
 {
     FatalError("loadDistributedMatrix only implemented on devices", AMGX_ERR_NOT_IMPLEMENTED);
 }
@@ -6253,9 +6263,9 @@ AMGX_FORCOMPLEX_BUILDS(AMGX_CASE_LINE)
 #undef AMGX_CASE_LINE
 
 #define AMGX_CASE_LINE(CASE) template void DistributedManager<TemplateMode<CASE>::Type>::loadDistributedMatrix( \
-    int, int, const int, const int, const int*, const int *col_indices, const mat_value_type*, int, int, const void*, const MatrixDistribution &dist); \
+    int, int, const int, const int, const int*, const int *col_indices, const mat_value_type*, int, int64_t, const void*, const MatrixDistribution &dist); \
     template void DistributedManager<TemplateMode<CASE>::Type>::loadDistributedMatrix( \
-    int, int, const int, const int, const int*, const int64_t *col_indices, const mat_value_type*, int, int, const void*, const MatrixDistribution &dist);
+    int, int, const int, const int, const int*, const int64_t *col_indices, const mat_value_type*, int, int64_t, const void*, const MatrixDistribution &dist);
 AMGX_FORALL_BUILDS(AMGX_CASE_LINE)
 AMGX_FORCOMPLEX_BUILDS(AMGX_CASE_LINE)
 #undef AMGX_CASE_LINE

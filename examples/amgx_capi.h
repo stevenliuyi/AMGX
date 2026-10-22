@@ -7,6 +7,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include "amgx_config.h"
 
 #if defined(__cplusplus)
@@ -502,7 +503,7 @@ typedef AMGX_RC (*t_AMGX_matrix_upload_all_global_32)
 
 typedef AMGX_RC (*t_AMGX_matrix_upload_distributed)
 (AMGX_matrix_handle mtx,
- int n_global,
+ int64_t n_global,
  int n,
  int nnz,
  int block_dimx,

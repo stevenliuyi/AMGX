@@ -1737,7 +1737,7 @@ inline AMGX_RC generate_distributed_poisson_7pt(AMGX_matrix_handle mtx,
 
 template<AMGX_Mode CASE>
 inline AMGX_RC matrix_upload_distributed(AMGX_matrix_handle mtx,
-                                        int n_global,
+                                        int64_t n_global,
                                         int n,
                                         int nnz,
                                         int block_dimx,
@@ -4687,7 +4687,7 @@ extern "C" {
     }   
     
     AMGX_RC AMGX_API AMGX_matrix_upload_distributed(AMGX_matrix_handle mtx,
-            int n_global,
+            int64_t n_global,
             int n,
             int nnz,
             int block_dimx,
@@ -4748,7 +4748,7 @@ extern "C" {
         return AMGX_RC_OK;
     }
 
-    AMGX_RC AMGX_API AMGX_matrix_upload_distributed(AMGX_matrix_handle mtx, int n_global, int n, int nnz, int block_dimx, int block_dimy, const int *row_ptrs, const void *col_indices_global, const void *data, const void *diag_data, AMGX_distribution_handle distribution)
+    AMGX_RC AMGX_API AMGX_matrix_upload_distributed(AMGX_matrix_handle mtx, int64_t n_global, int n, int nnz, int block_dimx, int block_dimy, const int *row_ptrs, const void *col_indices_global, const void *data, const void *diag_data, AMGX_distribution_handle distribution)
     {
         nvtxRange nvrf(__func__);
 

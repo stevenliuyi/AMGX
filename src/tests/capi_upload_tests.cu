@@ -8,6 +8,7 @@
 #include "unit_test.h"
 #include "amgx_c.h"
 #include "amgxP_c.h"
+#include <limits>
 
 namespace amgx
 
@@ -180,6 +181,46 @@ void run()
 }
 
 DECLARE_UNITTEST_END(CAPIUploadNew);
+
+DECLARE_UNITTEST_BEGIN(CAPIUploadGlobalRowCountRange);
+
+void run()
+{
+    AMGX_matrix_handle A;
+    AMGX_distribution_handle dist;
+    AMGX_resources_handle rsrc;
+    int nrows;
+    int nnz;
+    std::vector<int> rows;
+    std::vector<int> cols;
+    preamble(A, dist, rsrc, nrows, nnz, rows, cols);
+    std::vector<double> vals(nnz, 1.0);
+
+    // These must fail before reading partition data or allocating global arrays.
+    // The last count would truncate to the valid local size in a 32-bit API.
+    const int64_t invalid_counts[] = {
+        -1,
+        static_cast<int64_t>(std::numeric_limits<int>::max()) + 1,
+        (int64_t(1) << 32) + nrows
+    };
+    const int offsets[] = {0, nrows};
+    for (int use_offsets = 0; use_offsets < 2; ++use_offsets)
+    {
+        UNITTEST_ASSERT_EQUAL(AMGX_distribution_set_partition_data(dist,
+            use_offsets ? AMGX_DIST_PARTITION_OFFSETS : AMGX_DIST_PARTITION_VECTOR,
+            use_offsets ? offsets : NULL), AMGX_RC_OK);
+        for (int64_t n_global : invalid_counts)
+        {
+            UNITTEST_ASSERT_EQUAL(AMGX_matrix_upload_distributed(A, n_global, nrows, nnz,
+                1, 1, rows.data(), cols.data(), vals.data(), NULL, dist), AMGX_RC_BAD_PARAMETERS);
+        }
+    }
+
+    UNITTEST_ASSERT_EQUAL(AMGX_distribution_destroy(dist), AMGX_RC_OK);
+    cleanup(A, rsrc);
+}
+
+DECLARE_UNITTEST_END(CAPIUploadGlobalRowCountRange);
 
 DECLARE_UNITTEST_BEGIN(CAPIUploadCudaHostRegister);
 
