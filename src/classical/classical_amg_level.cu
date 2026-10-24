@@ -318,6 +318,8 @@ void Classical_AMG_Level_Base<T_Config>::createCoarseMatrices()
         int new_num_cols = thrust_wrapper::reduce<TConfig::memSpace>(P.col_indices.begin(), P.col_indices.end(), int(0), amgx::thrust::maximum<int>()) + 1;
         cudaCheckError();
         P.set_num_cols(new_num_cols);
+        // Exclude the halo rows kept from the Galerkin product: a P without neighbors is SpMV'd with num_nz.
+        P.set_num_nz(P.row_offsets[P.get_num_rows()]);
         P.set_initialized(1);
     }
 
@@ -424,6 +426,13 @@ void Classical_AMG_Level_Base<T_Config>::computeProlongationOperator()
     if (this->max_elmts > 0 && P.get_num_rows() > 0)
     {
         Truncate<TConfig>::truncateByMaxElements(P, this->max_elmts);
+
+        // The interpolator fixed P's distributed view sizes, which truncation leaves stale.
+        if (P.is_matrix_distributed())
+        {
+            DistributedArranger<T_Config> prep;
+            prep.createRowsLists(P, true);
+        }
     }
 
     if (!P.isLatencyHidingEnabled(*this->amg->m_cfg))
